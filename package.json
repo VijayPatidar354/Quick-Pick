@@ -4,10 +4,10 @@
     "socket.io": "^4.8.1"
   },
   "name": "cn_project",
-  "version": "1.0.0",
+ "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-   "test": "echo \"No tests yet\""
+    "test": "echo \"No tests yet\"",
     "start": "node server.js"
   },
   "keywords": [],
