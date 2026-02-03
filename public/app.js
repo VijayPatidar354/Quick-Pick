@@ -130,8 +130,8 @@ function startGame(username, totalQuestions) {
     document.getElementById("c"),
     document.getElementById("d")
   ];
-
-  socket = io("http://192.168.1.36:8080");
+socket = io();
+ // socket = io("http://192.168.1.36:8080");
   socket.emit("level", totalQuestions); // send level info first
   socket.emit("add", username);
   
