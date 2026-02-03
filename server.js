@@ -4,19 +4,22 @@ const socketio = require("socket.io");
 const app = express();
 app.use(express.static("public"));
 
-// FIXED FOR CLOUD: Dynamic Port
+// 1. Dynamic Port for Azure (MUST use process.env.PORT)
 const PORT = process.env.PORT || 8080;
 const expressServer = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// FIXED FOR CLOUD: CORS Support
+// 2. Optimized Socket.io Initialization (Defined ONLY once)
 const io = socketio(expressServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  perMessageDeflate: false // Disables compression to prevent Azure WebSocket crashes
 });
+
+// GAME DATA
 const level1Arr = [
   { clue: "I start with A and keep doctors away", name: "Apple" },
   { clue: "I start with B and buzz around flowers", name: "Bee" },
@@ -51,7 +54,6 @@ const level2Arr = [
   { clue: "What purrs and loves to chase things?", name: "Cat" },
   { clue: "What has two wheels and you ride it?", name: "Bicycle" },
   { clue: "What round thing do you kick or throw?", name: "Ball" },
-
   { clue: "What do you sit on?", name: "Chair" },
   { clue: "What do you put your food on?", name: "Table" },
   { clue: "Where do you sleep at night?", name: "Bed" },
@@ -93,10 +95,7 @@ const level2Arr = [
   { clue: "What do you use to see in the dark?", name: "Flashlight" }
 ];
 
-
-const socketio = require("socket.io");
-const io = socketio(expressServer);
-
+// MATCHMAKING LOGIC
 let users = [];
 let roomno = 1;
 
@@ -115,34 +114,38 @@ io.on("connection", (socket) => {
       const p2 = users.shift();
 
       console.log(`Match Found: ${p1.user} vs ${p2.user}`);
-      p1.emit("match_found", p2.user);
-      p2.emit("match_found", p1.user);
-
-      const room = roomno++;
+      const room = "room-" + roomno++;
       p1.join(room);
       p2.join(room);
+
+      // Link room to socket for clean disconnects
+      p1.gameRoom = room;
+      p2.gameRoom = room;
+
+      p1.emit("match_found", p2.user);
+      p2.emit("match_found", p1.user);
 
       // Score sharing
       p1.on("score", (data) => p2.emit("oscore", data));
       p2.on("score", (data) => p1.emit("oscore", data));
 
-      // Generate unique question indices
-      const totalQuestions = Math.min(p1.level || 5, p2.level || 5); // fallback to level 1 count
-      const levelArr = (totalQuestions === 5) ? level1Arr : level2Arr;
+      // Game Parameters
+      const totalQuestions = Math.min(p1.level || 5, p2.level || 5);
+      const levelArr = (totalQuestions === 10) ? level2Arr : level1Arr;
       const n = levelArr.length;
 
-      // Generate unique question indices
+      // Unique Question Indices
       const usedCorrectIndices = new Set();
       while (usedCorrectIndices.size < totalQuestions) {
         usedCorrectIndices.add(Math.floor(Math.random() * n));
       }
       const correctIndices = [...usedCorrectIndices];
 
+      // Question Loop
       for (let x = 0; x <= totalQuestions; x++) {
         setTimeout(() => {
           if (x === totalQuestions) {
-            p1.emit("result");
-            p2.emit("result");
+            io.to(room).emit("result");
           } else {
             const correctIndex = correctIndices[x];
             let optionIndices = new Set([correctIndex]);
@@ -151,7 +154,6 @@ io.on("connection", (socket) => {
             }
             const options = [...optionIndices].map(i => levelArr[i].name);
             const clue = levelArr[correctIndex].clue;
-
             io.to(room).emit("quiz", { clue, options });
           }
         }, x * 10000);
@@ -159,34 +161,17 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Level selection
   socket.on("level", (data) => {
     socket.level = data;
   });
 
-  // Handle when a player explicitly leaves
-  socket.on("exit_game", (username) => {
-    console.log(`${username} has exited the game.`);
-
-    const opponent = users.find(u => u.user !== username); // Find opponent
-    if (opponent) {
-      // Notify the opponent that the challenger ran away
-      opponent.emit("challenger_left", "Your Challenger Ran Away, You Won!");
+  const handleDisconnect = () => {
+    if (socket.gameRoom) {
+      socket.to(socket.gameRoom).emit("challenger_left", "Your Challenger Ran Away, You Won!");
     }
+    users = users.filter(s => s.id !== socket.id);
+  };
 
-    // Remove player from the game
-    users = users.filter(s => s !== socket);
-  });
-
-  // Handle unexpected disconnect
-  socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.user}`);
-    users = users.filter(s => s !== socket);
-
-    // If opponent exists, notify them
-    const opponent = users.find(u => u.user !== socket.user);
-    if (opponent) {
-      opponent.emit("challenger_left", "Your Challenger Ran Away, You Won!");
-    }
-  });
+  socket.on("exit_game", handleDisconnect);
+  socket.on("disconnect", handleDisconnect);
 });
