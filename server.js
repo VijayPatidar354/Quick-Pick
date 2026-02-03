@@ -1,8 +1,21 @@
 const express = require("express");
+const socketio = require("socket.io");
+
 const app = express();
 app.use(express.static("public"));
-const expressServer = app.listen(8080, () => {
-  console.log("Server running at http://localhost:8080/");
+
+// FIXED FOR CLOUD: Dynamic Port
+const PORT = process.env.PORT || 8080;
+const expressServer = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+// FIXED FOR CLOUD: CORS Support
+const io = socketio(expressServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 const level1Arr = [
   { clue: "I start with A and keep doctors away", name: "Apple" },
